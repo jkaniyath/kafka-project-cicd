@@ -132,6 +132,24 @@ class Config:
             return landing_zone
         except Exception as e:
             raise ConfigError(e)
-
         
+    def get_logging_zone(self):
 
+        """
+            Retrieves the logging zone URL, which is the external location for storing log data.
+
+            This function executes a Spark SQL query to describe the external location named 
+            'logger' and extracts the URL associated with it.
+
+            Returns:
+                str: The URL of the landing zone.
+
+            Raises:
+                ConfigError: If an error occurs while retrieving the external location.
+
+        """
+        try:
+            logging_zone = self.spark.sql("DESCRIBE EXTERNAL LOCATION logger").select("url").collect()[0][0]
+            return logging_zone
+        except Exception as e:
+            raise ConfigError(e)

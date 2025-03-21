@@ -125,24 +125,81 @@ class IngestionError(Exception):
         
 
 class SilverSchemaError(Exception):
+    """
+    Custom exception raised when the provided silver schema list is incorrect.
+
+    This exception ensures that the schema list contains exactly five schemas 
+    in the required order: `books`, `customers`, `orders`, `customers_orders`, 
+    and `books_sales`.
+
+    Attributes:
+        schema_list (list[str]): The provided schema list that caused the exception.
+
+    Example:
+        >>> raise SilverSchemaError(["books", "customers", "orders"])
+        SilverSchemaError: Error: The silver schema list should contain exactly five schemas 
+        in the following order: books, customers, orders, customers_orders, and books_sales. 
+        The provided list, ['books', 'customers', 'orders'], is incorrect.
+    """
     def __init__(self, schema_list:list[str]):
         super().__init__(
             f"Error: The silver schema list should contain exactly five schemas in the following order: books, customers, orders, customers_orders, and books_sales. The provided list, {schema_list}, is incorrect.")
         
 
 class SilverSetupError(Exception):
+    """
+    Custom exception for errors occurring during the Silver setup process.
+
+    This exception is raised when an error occurs while running the Bronze setup, 
+    providing a detailed error message.
+
+    Attributes:
+        msg (str): The error message describing the issue.
+
+    Example:
+        ```python
+        raise SilverSetupError("Failed to load Bronze data")
+        ```
+    """
     def __init__(self, msg:str):
         super().__init__(
             f"Error occured while running bronze setup. Error message is {msg}"
         )
 
+
 class UpsertError(Exception):
+    """
+    Custom exception class for handling errors during the upsert operation.
+
+    This exception is raised when an error occurs while executing an upsert function.
+
+    Attributes:
+        msg (str): The error message describing the issue.
+        func_name (str): The name of the function where the error occurred.
+
+    Methods:
+        __init__(msg, func_name):
+            Initializes the exception with a formatted error message.
+    """
     def __init__(self, msg:str, func_name:str):
         super().__init__(
             f"Error occured while while running upsert function: {func_name}. Error message is {msg}")
         
 
 class GoldSetupError(Exception):
+    """
+    Custom exception class for errors occurring during the Gold setup process.
+
+    This exception is raised when an error occurs while executing the Gold setup, 
+    providing a formatted error message.
+
+    Attributes:
+        msg (str): The error message describing the issue.
+
+    Methods:
+        __init__(msg):
+            Initializes the exception with a detailed error message.
+    """
     def __init__(self, msg:str):
         super().__init__(
             f"Error occured while running gold setup. Error message is {msg}"
