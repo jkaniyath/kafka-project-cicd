@@ -15,15 +15,19 @@ src_dir = os.path.abspath(os.path.join(current_dir, "..", "src"))
 # Add src to sys.path (insert at the beginning)
 sys.path.insert(0, src_dir)
 
-from python_package.common.config import Config
 from python_package.common.common_functions import remove_duplicate_rows, extract_and_convert_price, clean_column_values
 
-config = Config()
 
 
+# Get the spark session
 @pytest.fixture(scope="module")
 def spark()->SparkSession:
-    return config.spark
+    try:
+      from databricks.connect import DatabricksSession
+      return DatabricksSession.builder.serverless(True).getOrCreate() 
+    except ImportError:
+        from pyspark.sql import SparkSession
+        return SparkSession.builder.getOrCreate()
 
 
 def test_remove_duplicate_rows(spark):

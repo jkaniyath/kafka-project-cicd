@@ -1,121 +1,143 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
+from pyspark.sql.types import StructType, StructField, StringType,TimestampType,IntegerType
+from pyspark.sql import SparkSession
 
 
+from python_package.common.config import Config
 
-class Logger:
-      
+config = Config()
+spark = config.spark
+logger_db_location = config.get_logging_zone()
+
+class CustomHandler(logging.Handler):
     """
-        A custom logger class for managing logging with a timestamp formatted according to a specified timezone.
+    A custom logging handler that writes log records to a Delta table in Databricks.
 
-        This class provides a logging mechanism where log files are named dynamically based on the date, 
-        and timestamps are formatted according to the specified timezone.
+    This handler creates a managed schema (if it does not exist) and appends log records 
+    to a specified Delta table. The log entries include log level, line number, message, 
+    and timestamp.
 
-        Attributes:
-            logger_name (str): The name of the logger instance.
-            log_file_prefix (str): The prefix for log file names.
-            timestamp_zone (str): The timezone for logging timestamps.
+    Attributes:
+        table_name (str): The name of the Delta table to store logs.
+        db_name (str): The name of the database/schema where the table resides.
+        timestamp_zone (str): The timezone for log timestamps.
+        env (str): The environment name (e.g., "dev", "prod") used for schema naming.
+        spark (SparkSession): The active Spark session.
+        db_location (str): The location where the database/schema is stored.
+        schema_name (str): The fully qualified schema name (includes environment if provided).
+        schema (StructType): The schema definition for the log records.
+
+    Methods:
+        emit(record):
+            Writes a log record to the Delta table.
+    """
+
+    def __init__(self,
+                 table_name:str, 
+                 db_name:str, 
+                 timestamp_zone, 
+                 env:str, 
+                 spark:SparkSession,
+                 db_location:str):
+
+        super().__init__()
+        self.spark = spark
+        self.timestamp_zone = timestamp_zone
+        self.env = env
+        self.db_name = db_name
+        self.db_location = db_location
+        self.table_name = table_name
+        self.schema_name = f"{env + '.' if env else ''}{db_name}"
+        self.schema = StructType([
+                    StructField("levelname", StringType(), True),
+                    StructField("lineno", IntegerType(), True),
+                    StructField("msg", StringType(), True),
+                    StructField("created_timestamp", TimestampType(), True)
+            ])
+        
+    def emit(self,record):
+        """
+        Writes a log record to the Delta table.
+
+        This method creates the schema if it does not exist, formats the log record, 
+        and appends it to the Delta table.
 
         Args:
-            logger_name (str, optional): The name of the logger. Defaults to `"KafkaBricks_Logger"`.
-            log_file_prefix (str, optional): Prefix for log files. Defaults to `"kafkabricks_log"`.
-            timestamp_zone (str, optional): The timezone for timestamps. Defaults to `"Europe/Riga"`.
-
-        Example:
-            ```python
-            logger = Logger().get_logger()
-            logger.info("This is an info message.")
-            logger.error("This is an error message.")
-            ```
-    """
-      
-    def __init__(self, logger_name:str="KafkaBricks_Logger", log_file_prefix:str="kafkabricks_log", 
-                 timestamp_zone:str = "Europe/Riga") -> None:
+            record (logging.LogRecord): The log record to be written.
         """
-            Initializes the Logger instance with a specified name, log file prefix, and timezone.
-
-            Args:
-                logger_name (str, optional): The name of the logger. Defaults to `"KafkaBricks_Logger"`.
-                log_file_prefix (str, optional): Prefix for log files. Defaults to `"kafkabricks_log"`.
-                timestamp_zone (str, optional): The timezone for timestamps. Defaults to `"Europe/Riga"`.
-        """
-        self.logger_name = logger_name
-        self.log_file_prefix = log_file_prefix
-        self.timestamp_zone = timestamp_zone
-
-    def _format_logging_time(self, record, datefmt: str = None) -> str:
+        self.spark.sql(f"CREATE SCHEMA IF NOT EXISTS {self.schema_name} MANAGED LOCATION '{self.db_location}'")
+        log_table_name = f"{self.schema_name}.{self.table_name}"
         
-        """
-            Formats the timestamp for log messages according to the specified timezone.
+        if record:
+            # Get the local timestamp as per the given region.
+            local_time = datetime.fromtimestamp(record.created, tz=ZoneInfo(self.timestamp_zone))
+            logs = []
+            logs.append((record.levelname,record.lineno,record.msg,local_time))
+            logs_df = spark.createDataFrame(data=logs, schema=self.schema)
+            logs_df.write.mode("append").saveAsTable(log_table_name)
 
-            Args:
-                record (logging.LogRecord): The log record containing the timestamp.
-                datefmt (str, optional): Date format string (ignored in this implementation).
 
-            Returns:
-                str: The formatted timestamp string in "YYYY-MM-DD HH:MM:SS" format.
-        """
+class Logger: 
+    """
+    A custom logger class for logging messages to a Delta table in Databricks.
 
-        local_time = datetime.fromtimestamp(record.created, tz=ZoneInfo(self.timestamp_zone))
-        return local_time.strftime("%Y-%m-%d %H:%M:%S")
-    
-    
+    This logger initializes a logging instance with a custom handler (`CustomHandler`) 
+    that writes logs to a specified Delta table. It ensures that only one handler 
+    is attached at a time.
+
+    Attributes:
+        spark (SparkSession): The active Spark session.
+        logger_name (str): The name of the logger instance.
+        table_name (str): The name of the Delta table where logs are stored.
+        db_name (str): The name of the database/schema containing the table.
+        db_location (str): The managed location of the database/schema.
+        env (str): The environment name (e.g., "dev", "prod") used for schema naming.
+        timestamp_zone (str): The timezone for log timestamps.
+
+    Methods:
+        get_logger():
+            Initializes and returns a logger instance with a custom handler.
+    """
+    def __init__(self, 
+                 spark:SparkSession = spark,
+                 logger_name:str="KafkaBricks_Logger", 
+                 table_name:str = "kafka_bricks_logger",
+                 db_name:str = "logger",
+                 db_location:str = logger_db_location,
+                 env:str = "dev",
+                 timestamp_zone:str = "Europe/Riga") -> None:
+        self.spark = spark
+        self.logger_name = logger_name
+        self.timestamp_zone = timestamp_zone
+        self.table_name = table_name
+        self.db_name = db_name
+        self.db_location = db_location
+        self.env = env
+
     def get_logger(self):
-
         """
-            Creates and configures a logger instance.
+        Initializes and returns a logger instance with a custom handler.
 
-            - Log files are stored in `/tmp/` with the format `{log_file_prefix}_YYYY-MM-DD.log`.
-            - The logger writes logs at the `DEBUG` level.
-            - If the logger already has handlers, they are cleared before adding a new file handler.
+        This method sets up a logger with the given name and attaches a 
+        `CustomHandler` to write logs to the Delta table. If handlers already 
+        exist, they are cleared before adding the custom handler.
 
-            Returns:
-                logging.Logger: The configured logger instance.
-
-            Example:
-                ```python
-                logger = Logger().get_logger()
-                logger.info("This is a log message.")
-                ```
+        Returns:
+            logging.Logger: The configured logger instance.
         """
-
-        # Get current UTC time
-        utc_timestamp = datetime.now(timezone.utc)
-
-        # Convert UTC to local timestamp
-        local_timestamp = utc_timestamp.astimezone(ZoneInfo(self.timestamp_zone))
-
-
-        logfile_prefix = self.log_file_prefix
-        file_date = local_timestamp.strftime('%Y-%m-%d')
-        log_file_name = f'{logfile_prefix}_{file_date}.log'
-
-       
-        log_dir = "/tmp/"
-        # Construct the full path for the log file
-        log_file = f'{log_dir}{log_file_name}'
-
- 
         logger = logging.getLogger(self.logger_name)
         logger.setLevel(logging.DEBUG)
 
-        file_handler = logging.FileHandler(log_file, mode='a')
-        logging.Formatter.formatTime = self._format_logging_time
-        formatter = logging.Formatter('%(levelname)s:%(asctime)s:%(message)s')
-        file_handler.setFormatter(formatter)
-
+        customhandler = CustomHandler(spark=self.spark,
+                                    table_name=self.table_name, 
+                                    db_name='logger', 
+                                    db_location=self.db_location,
+                                    timestamp_zone = "Europe/Riga",
+                                    env=self.env)
         if logger.hasHandlers():
             logger.handlers.clear()
-
-        # add handlers
-        logger.addHandler(file_handler)
-
+        logger.addHandler(customhandler)
 
         return logger
-    
-
-
-
-
-
