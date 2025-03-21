@@ -6,16 +6,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, DateType, BooleanType
 from chispa.dataframe_comparer import assert_df_equality
 
-# Get the absolute path of the current script
-current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Get the src directory (one level up)
-src_dir = os.path.abspath(os.path.join(current_dir, "..", "src"))
 
-# Add src to sys.path (insert at the beginning)
-sys.path.insert(0, src_dir)
-
-from python_package.common.common_functions import remove_duplicate_rows, extract_and_convert_price, clean_column_values
+from src.python_package.common.common_functions import remove_duplicate_rows, extract_and_convert_price, clean_column_values
 
 
 
